@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ingestor-pod0
+spec:
+  containers:
+    - name: gogetter
+      image: marcobevilacqua94/gogetter:latest
+      command: ["./couchbase","Administrator","password","127.0.0.1","beer-sample","_default","_default","16"]

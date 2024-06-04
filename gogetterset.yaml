@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestor
+spec:
+  replicas: 30
+  selector:
+    matchLabels:
+      app: gogetter
+  template:
+    metadata:
+      labels:
+        app: gogetter
+    spec:
+      containers:
+        - name: gogetter
+          image: marcobevilacqua94/gogetter:latest
+          command: ["./couchbase","Administrator","password","127.0.0.1","beer-sample","_default","_default","16"]
