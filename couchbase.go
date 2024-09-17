@@ -137,6 +137,8 @@ func randomDigits(length int) string {
 func MaxParallelism() int {
 	maxProcs := runtime.GOMAXPROCS(0)
 	numCPU := runtime.NumCPU()
+	log.Printf("%s", strconv.Itoa(maxProcs))
+	log.Printf("%s", strconv.Itoa(numCPU))
 	if maxProcs < numCPU {
 		return maxProcs
 	}
