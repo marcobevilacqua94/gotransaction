@@ -117,7 +117,7 @@ func main() {
 	cluster.Close(nil)
 	log.Println("Completed")
 	elapsed := time.Since(start)
-	log.Printf("Binomial took %s", elapsed)
+	log.Printf("%s", elapsed)
 }
 
 func randomInt(n int) int {
