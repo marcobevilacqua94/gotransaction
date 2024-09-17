@@ -61,6 +61,10 @@ func main() {
 	body := randomDigits(size)
 	start := time.Now()
 	_, err1 := cluster.Transactions().Run(func(ctx *gocb.TransactionAttemptContext) error {
+		_, err := ctx.Insert(collection, "0", map[string]interface{}{"body": body})
+		if err != nil {
+			return err
+		}
 		for i := 0; i < concurrency; i++ {
 			go func() {
 				for {
@@ -82,7 +86,7 @@ func main() {
 		}
 
 		total, _ := strconv.Atoi(os.Args[4])
-		for i := 0; i < total; i++ {
+		for i := 1; i < total; i++ {
 			workChan <- args{
 				Name:  fmt.Sprint(i),
 				Data:  map[string]interface{}{"body": body},
