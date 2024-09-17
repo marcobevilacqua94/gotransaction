@@ -51,7 +51,7 @@ func main() {
 		Data  interface{}
 		index int
 	}
-	concurrency := MaxParallelism() // number of goroutines
+	concurrency := MaxParallelism() * 8 // number of goroutines
 	workChan := make(chan args, concurrency)
 	shutdownChan := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -137,8 +137,6 @@ func randomDigits(length int) string {
 func MaxParallelism() int {
 	maxProcs := runtime.GOMAXPROCS(0)
 	numCPU := runtime.NumCPU()
-	log.Printf("%s", strconv.Itoa(maxProcs))
-	log.Printf("%s", strconv.Itoa(numCPU))
 	if maxProcs < numCPU {
 		return maxProcs
 	}
