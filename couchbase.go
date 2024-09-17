@@ -51,7 +51,7 @@ func main() {
 		Data  interface{}
 		index int
 	}
-	concurrency := MaxParallelism() * 8 // number of goroutines
+	concurrency := MaxParallelism() * 24 // number of goroutines
 	workChan := make(chan args, concurrency)
 	shutdownChan := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
