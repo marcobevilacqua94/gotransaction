@@ -59,6 +59,7 @@ func main() {
 	wg.Add(concurrency)
 	size, _ := strconv.Atoi(os.Args[5])
 	body := randomDigits(size)
+	start := time.Now()
 	_, err1 := cluster.Transactions().Run(func(ctx *gocb.TransactionAttemptContext) error {
 		for i := 0; i < concurrency; i++ {
 			go func() {
@@ -115,6 +116,8 @@ func main() {
 	wg.Wait()
 	cluster.Close(nil)
 	log.Println("Completed")
+	elapsed := time.Since(start)
+	log.Printf("Binomial took %s", elapsed)
 }
 
 func randomInt(n int) int {
