@@ -1,106 +1,141 @@
 package main
 
 import (
-	"crypto/x509"
+	"crypto/rand"
+	"errors"
+	"fmt"
 	"log"
+	"math/big"
 	"os"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/couchbase/gocb/v2"
+	gocb "github.com/couchbase/gocb/v2"
 )
 
-const rootPEM = `
------BEGIN CERTIFICATE-----
-MIIDDDCCAfSgAwIBAgIIF9VKJ87vtsQwDQYJKoZIhvcNAQELBQAwJDEiMCAGA1UE
-AxMZQ291Y2hiYXNlIFNlcnZlciBjNmE2MDVhNzAeFw0xMzAxMDEwMDAwMDBaFw00
-OTEyMzEyMzU5NTlaMCQxIjAgBgNVBAMTGUNvdWNoYmFzZSBTZXJ2ZXIgYzZhNjA1
-YTcwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCaL24ymdVip/7tnS6a
-7qHkC0bA87Cv3Aapnw6aWVPWZLm/oxUi3/6JCrqZBgJYBV/YiJTkdMQ6AU/6mLDS
-dn/5ohI4M+5QZgwOF1HYREMZmJ/3K39w4EwLmHTRKqtkft7RhZe0r1G01pJT6RPc
-pJGvoqn67KtibqIAy683VmA2XSgmS8MYvsW8f3U7rtMG2vqlKMBvzYkJZuCU9bQ3
-TE80Vkypg2XHGOFpYJLCxm2FuRVQ1WQpTnGP+vjN5Aed6NCNzUFChdvTuUVi4pZL
-uwaO7026em4N/T/Zn27SkNZ/SvwK9JVw/dgIQCV26sF5O/GENezm93c10GqZw2OP
-k5ffAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0G
-A1UdDgQWBBR0HQjyRtmZQTE40UJd89ot/O4sHzANBgkqhkiG9w0BAQsFAAOCAQEA
-B4D7FROAimUQhnTLeShFVNICa9z/wYw3i4wH8UgKhFO9kEsVTg2+qFkAVy2o+xCf
-sRhH9kYHsLidGc6s38qUpF/gsH3UoTTFO3j/WS+2G4kZ6yQPiQy0DaoR0aVdVx1a
-TjdzwgGCu4NJFAcvW0xOqPVyZxGTOrLz8tiNcdykw7CICO4/cmTzQHkidGh4qVyh
-OguDXwNefzj6LkTxOpZODKPmxT5Udw0DUBBWB16ebOItUUZtd+JqYziLsPAAC18a
-FCp+9KQg/ZtYA/O/OOBik6H+PkbZPSQUEBDFhHmJvYHzeMaEFeVFGMHGD7wwLPqg
-9cUMo085986p5luEIIrA1w==
------END CERTIFICATE-----
-`
-
 func main() {
-	roots := x509.NewCertPool()
-	roots.AppendCertsFromPEM([]byte(rootPEM))
 
-	// Uncomment following line to enable logging
-	// gocb.SetLogger(gocb.VerboseStdioLogger())
-
-	username := "Administrator"
-	password := "password"
-	ip := "127.0.0.1"
-	bucketName := "sample"
-	scopeName := "_default"
-	collectionName := "_default"
-	concurrency := "16"
-
-	args := os.Args
-
-	username = args[1]
-	password = args[2]
-	ip = args[3]
-	bucketName = args[4]
-	scopeName = args[5]
-	collectionName = args[6]
-	concurrency = args[7]
-
-	// Update this to your cluster details
-	connectionString := "couchbases://" + ip
-
-	gocb.VerboseStdioLogger()
-
-	// For a secure cluster connection, use `couchbases://<your-cluster-ip>` instead.
-	cluster, err := gocb.Connect(connectionString, gocb.ClusterOptions{
+	timeout, _ := strconv.Atoi(os.Args[6])
+	// #tag::connect[]
+	opts := gocb.ClusterOptions{
 		Authenticator: gocb.PasswordAuthenticator{
-			Username: username,
-			Password: password,
+			Username: os.Args[2],
+			Password: os.Args[3],
 		},
-		SecurityConfig: gocb.SecurityConfig{
-			TLSRootCAs: roots,
+		TransactionsConfig: gocb.TransactionsConfig{
+			DurabilityLevel: gocb.DurabilityLevelNone,
+			Timeout:         time.Duration(timeout) * time.Second,
 		},
-	})
+	}
+	cluster, err := gocb.Connect(os.Args[1], opts)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	bucket := cluster.Bucket(bucketName)
+	bucket := cluster.Bucket("test")
+	collection := bucket.Scope("test").Collection("test")
 
+	// We wait until the bucket is connected and setup.
 	err = bucket.WaitUntilReady(5*time.Second, nil)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
+	// #end::connect[]
 
-	scope := bucket.Scope(scopeName)
-	collection := scope.Collection(collectionName)
-
+	// #tag::workers[]
+	type args struct {
+		Name  string
+		Data  interface{}
+		index int
+	}
+	concurrency := MaxParallelism() * 8 // number of goroutines
+	workChan := make(chan args, concurrency)
+	shutdownChan := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
-	id := "21st_amendment_brewery_cafe"
-	numOps, err := strconv.Atoi(concurrency)
 
-	for i := 0; i < numOps; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for true {
-				collection.Get(id, nil)
+	wg.Add(concurrency)
+	size, _ := strconv.Atoi(os.Args[5])
+	body := randomDigits(size)
+	_, err1 := cluster.Transactions().Run(func(ctx *gocb.TransactionAttemptContext) error {
+		for i := 0; i < concurrency; i++ {
+			go func() {
+				for {
+					select {
+					case args := <-workChan:
+						_, err := ctx.Insert(collection, args.Name, args.Data)
+						if args.index%1000 == 0 {
+							log.Println(args.index)
+						}
+						if err != nil {
+							log.Println(err)
+						}
+					case <-shutdownChan:
+						wg.Done()
+						return
+					}
+				}
+			}()
+		}
+
+		total, _ := strconv.Atoi(os.Args[4])
+		for i := 0; i < total; i++ {
+			workChan <- args{
+				Name:  fmt.Sprint(i),
+				Data:  map[string]interface{}{"body": body},
+				index: i,
 			}
-		}()
+		}
+
+		return nil
+	}, nil)
+	var ambigErr gocb.TransactionCommitAmbiguousError
+	if errors.As(err1, &ambigErr) {
+		log.Println("Transaction possibly committed")
+
+		log.Printf("%+v", ambigErr)
+		return
+	}
+	var failedErr gocb.TransactionFailedError
+	if errors.As(err1, &failedErr) {
+		log.Println("Transaction did not reach commit point")
+
+		log.Printf("%+v", failedErr)
+		return
+	}
+	if err1 != nil {
+		panic(err1)
 	}
 
+	for i := 0; i < concurrency; i++ {
+		shutdownChan <- struct{}{}
+	}
 	wg.Wait()
+	cluster.Close(nil)
+	log.Println("Completed")
+}
 
+func randomInt(n int) int {
+	num, _ := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	return int(num.Int64())
+}
+
+func randomDigits(length int) string {
+	var digits strings.Builder
+	for i := 0; i < length; i++ {
+		digit := randomInt(10)
+		digits.WriteString(fmt.Sprint(digit))
+	}
+	return digits.String()
+}
+
+func MaxParallelism() int {
+	maxProcs := runtime.GOMAXPROCS(0)
+	numCPU := runtime.NumCPU()
+	if maxProcs < numCPU {
+		return maxProcs
+	}
+	return numCPU
 }
